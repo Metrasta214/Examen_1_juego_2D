@@ -11,16 +11,17 @@ let score = 0;
 let highScore = localStorage.getItem("cupheadHighScore") || 0;
 highScoreElement.textContent = highScore;
 
-// ================= IMÁGENES (ESTILO CUPHEAD CLÁSICO) =================
-// Puedes reemplazar estas rutas por tus sprites reales después
+// ================= VIDAS =================
+let lives = 3;
+let isDead = false;
+let fadeAlpha = 0;
+
+// ================= IMÁGENES =================
 const playerImg = new Image();
 playerImg.src = "assets/player.png";
 
 const bossImg = new Image();
 bossImg.src = "assets/boss.png";
-
-const bulletImg = new Image();
-bulletImg.src = "assets/bullet.png";
 
 const minionImg = new Image();
 minionImg.src = "assets/minion.png";
@@ -31,81 +32,59 @@ backgroundImg.src = "assets/background.png";
 // ================= CONTROLES =================
 const keys = {};
 
-// ================= JUGADOR (ESTILO CUPHEAD) =================
+// ================= JUGADOR =================
 const player = {
     x: 80,
     y: 360,
-    width: 60,
-    height: 70,
+    width: 80,
+    height: 90,
     speed: 4,
     dy: 0,
     gravity: 0.6,
     jumpPower: -13,
-    onGround: false
+    onGround: false,
+    bob: 0 // animación idle
 };
 
-// ================= BALAS =================
+// ================= ARRAYS =================
 const bullets = [];
 const enemyBullets = [];
-
-// ================= MINIONS (invocados ocasionalmente) =================
 const minions = [];
 
-// ================= JEFE ÚNICO (CUPHEAD STYLE) =================
+// ================= JEFE =================
 const boss = {
-    x: 620,
-    y: 120,
-    width: 140,
-    height: 140,
-    speedY: 1.8,
+    x: 470,
+    y: 40,
+    width: 380,
+    height: 380,
+    speedY: 1.2,
     direction: 1,
     shootTimer: 0,
     summonTimer: 0,
-    health: 300,
-    maxHealth: 300,
+    health: 10000,
+    maxHealth: 10000,
     phase: 1
 };
 
-// ================= EVENTOS TECLADO =================
-document.addEventListener("keydown", (e) => {
-    keys[e.key.toLowerCase()] = true;
-});
+// ================= INPUT =================
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
-document.addEventListener("keyup", (e) => {
-    keys[e.key.toLowerCase()] = false;
-});
+// ================= DISPARO JUGADOR =================
+canvas.addEventListener("click", () => {
+    if (isDead) return;
 
-// ================= CLICK = DISPARO + ELIMINAR MINIONS =================
-canvas.addEventListener("click", (e) => {
-    // Disparo del jugador
     bullets.push({
         x: player.x + player.width,
         y: player.y + player.height / 2,
-        width: 18,
-        height: 8,
-        speed: 9
-    });
-
-    // Eliminar minions con mouse (requisito)
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    minions.forEach((m, index) => {
-        if (
-            mouseX > m.x &&
-            mouseX < m.x + m.width &&
-            mouseY > m.y &&
-            mouseY < m.y + m.height
-        ) {
-            minions.splice(index, 1);
-            score += 40;
-        }
+        radius: 6,
+        speed: 10,
+        pulse: 0
     });
 });
 
-// ================= COLISIONES (AABB) =================
-function collision(a, b) {
+// ================= COLISION =================
+function collisionRect(a, b) {
     return (
         a.x < b.x + b.width &&
         a.x + a.width > b.x &&
@@ -114,229 +93,221 @@ function collision(a, b) {
     );
 }
 
-// ================= ACTUALIZACIÓN =================
+// ================= MORIR =================
+function killPlayer() {
+    if (isDead) return;
+
+    lives--;
+    isDead = true;
+    fadeAlpha = 0;
+
+    setTimeout(() => {
+        if (lives > 0) {
+            player.x = 80;
+            player.y = 360;
+            isDead = false;
+        }
+    }, 1000);
+}
+
+// ================= UPDATE =================
 function update() {
-    // ===== MOVIMIENTO JUGADOR (WASD) =====
+
+    if (isDead) return;
+
+    // Movimiento jugador
     if (keys["a"]) player.x -= player.speed;
     if (keys["d"]) player.x += player.speed;
 
-    // Salto (W o Espacio)
     if ((keys[" "] || keys["w"]) && player.onGround) {
         player.dy = player.jumpPower;
         player.onGround = false;
     }
 
-    // Gravedad
     player.dy += player.gravity;
     player.y += player.dy;
 
-    // Suelo
     if (player.y + player.height >= canvas.height - 20) {
         player.y = canvas.height - player.height - 20;
         player.dy = 0;
         player.onGround = true;
     }
 
-    // Límites del canvas
-    if (player.x < 0) player.x = 0;
-    if (player.x + player.width > canvas.width) {
-        player.x = canvas.width - player.width;
-    }
+    // Animación idle
+    player.bob += 0.1;
 
-    // ===== BALAS DEL JUGADOR =====
-    bullets.forEach((b, bi) => {
+    // ===== BALAS JUGADOR =====
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i];
         b.x += b.speed;
 
-        // Eliminar si salen del canvas
         if (b.x > canvas.width) {
-            bullets.splice(bi, 1);
-            return;
+            bullets.splice(i, 1);
+            continue;
         }
 
-        // Colisión bala vs jefe
-        if (collision(b, boss)) {
-            boss.health -= 2;
-            score += 10;
-            bullets.splice(bi, 1);
+        // Daño al jefe
+        if (collisionRect({x:b.x,y:b.y,width:1,height:1}, boss)) {
+            boss.health -= 1;
+            score += 100;
+            bullets.splice(i, 1);
+            continue;
         }
 
-        // Colisión bala vs minions
-        minions.forEach((m, mi) => {
-            if (collision(b, m)) {
-                minions.splice(mi, 1);
-                bullets.splice(bi, 1);
-                score += 60;
+        // Daño minion
+        for (let j = minions.length - 1; j >= 0; j--) {
+            let m = minions[j];
+            if (collisionRect({x:b.x,y:b.y,width:1,height:1}, m)) {
+                m.health -= 10;
+                bullets.splice(i, 1);
+                if (m.health <= 0) {
+                    minions.splice(j, 1);
+                    score += 100;
+                }
+                break;
             }
-        });
-    });
-
-    // ===== FASE DEL JEFE (DIFICULTAD PROGRESIVA) =====
-    if (boss.health < boss.maxHealth * 0.5) {
-        boss.phase = 2;
-        boss.speedY = 2.8;
+        }
     }
 
-    // ===== MOVIMIENTO DEL JEFE (patrón vertical clásico) =====
+    // ===== MOVIMIENTO JEFE =====
     boss.y += boss.speedY * boss.direction;
-
-    if (boss.y <= 40 || boss.y + boss.height >= canvas.height - 40) {
+    if (boss.y <= 20 || boss.y + boss.height >= canvas.height - 20)
         boss.direction *= -1;
-    }
 
-    const difficulty = 1 + score / 1200 + boss.phase * 0.5;
-
-    // ===== DISPAROS DEL JEFE (ocasionales y serios) =====
+    // ===== PATRÓN DE BALAS RADIAL =====
     boss.shootTimer++;
-    if (boss.shootTimer > 70 / difficulty) {
-        enemyBullets.push({
-            x: boss.x,
-            y: boss.y + boss.height / 2,
-            width: 20,
-            height: 10,
-            speed: 4 + difficulty
-        });
+    if (boss.shootTimer > 80) {
+        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 6) {
+            enemyBullets.push({
+                x: boss.x + boss.width / 2,
+                y: boss.y + boss.height / 2,
+                vx: Math.cos(angle) * 4,
+                vy: Math.sin(angle) * 4,
+                radius: 8,
+                pulse: 0
+            });
+        }
         boss.shootTimer = 0;
     }
 
-    // ===== INVOCAR MINIONS (NO MUCHOS, solo ocasionales) =====
+    // ===== MINIONS =====
     boss.summonTimer++;
-    if (boss.summonTimer > 350) {
+    if (boss.summonTimer > 400) {
         minions.push({
-            x: boss.x - 30,
-            y: boss.y + Math.random() * 100,
-            width: 50,
-            height: 50,
-            speed: 2 + Math.random() * 2
+            x: boss.x - 80,
+            y: boss.y + boss.height - 120,
+            width: 140,
+            height: 140,
+            speed: 2,
+            health: 100
         });
         boss.summonTimer = 0;
     }
 
-    // ===== MINIONS =====
-    minions.forEach((m, mi) => {
+    for (let i = minions.length - 1; i >= 0; i--) {
+        let m = minions[i];
         m.x -= m.speed;
 
-        // Colisión con jugador
-        if (collision(m, player)) {
-            score = Math.max(0, score - 25);
-            minions.splice(mi, 1);
-        }
+        if (collisionRect(player, m)) killPlayer();
+        if (m.x + m.width < 0) minions.splice(i, 1);
+    }
 
-        // Eliminar si salen del canvas
-        if (m.x + m.width < 0) {
-            minions.splice(mi, 1);
-        }
-    });
+    // ===== BALAS ENEMIGAS CON HOMING SUAVE =====
+    for (let i = enemyBullets.length - 1; i >= 0; i--) {
+        let b = enemyBullets[i];
 
-    // ===== BALAS ENEMIGAS =====
-    enemyBullets.forEach((b, bi) => {
-        b.x -= b.speed;
+        // seguimiento suave
+        let dx = player.x - b.x;
+        let dy = player.y - b.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
 
-        if (collision(b, player)) {
-            score = Math.max(0, score - 50);
-            enemyBullets.splice(bi, 1);
-        }
+        b.vx += (dx/dist) * 0.05;
+        b.vy += (dy/dist) * 0.05;
 
-        if (b.x + b.width < 0) {
-            enemyBullets.splice(bi, 1);
-        }
-    });
+        b.x += b.vx;
+        b.y += b.vy;
 
-    // ===== ACTUALIZAR SCORE =====
+        if (collisionRect({x:b.x,y:b.y,width:1,height:1}, player))
+            killPlayer();
+
+        if (b.x < -50 || b.x > canvas.width+50 ||
+            b.y < -50 || b.y > canvas.height+50)
+            enemyBullets.splice(i,1);
+    }
+
+    if (collisionRect(player, boss)) killPlayer();
+
     scoreElement.textContent = score;
-
-    if (score > highScore) {
-        highScore = score;
-        localStorage.setItem("cupheadHighScore", highScore);
-        highScoreElement.textContent = highScore;
-    }
 }
 
-// ================= DIBUJADO (ESTILO CUPHEAD CLÁSICO) =================
+// ================= DRAW =================
 function draw() {
-    // Fondo dentro del canvas (requisito del proyecto)
-    if (backgroundImg.complete) {
-        ctx.drawImage(backgroundImg, 0, 0, canvas.width, canvas.height);
-    } else {
-        ctx.fillStyle = "#3a2d27"; // fallback vintage
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
 
-    // ===== JUGADOR =====
-    if (playerImg.complete) {
-        ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
-    } else {
-        ctx.fillStyle = "#b22222"; // rojo vintage serio
-        ctx.fillRect(player.x, player.y, player.width, player.height);
-    }
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(backgroundImg,0,0,canvas.width,canvas.height);
 
-    // ===== BALAS DEL JUGADOR =====
-    bullets.forEach((b) => {
-        if (bulletImg.complete) {
-            ctx.drawImage(bulletImg, b.x, b.y, b.width, b.height);
-        } else {
-            ctx.fillStyle = "#f4e8c1";
-            ctx.fillRect(b.x, b.y, b.width, b.height);
-        }
-    });
+    // Animación jefe (flotación)
+    let bossOffset = Math.sin(Date.now()*0.002)*5;
+    ctx.drawImage(bossImg,boss.x,boss.y+bossOffset,boss.width,boss.height);
 
-    // ===== JEFE PRINCIPAL =====
-    if (bossImg.complete) {
-        ctx.drawImage(bossImg, boss.x, boss.y, boss.width, boss.height);
-    } else {
-        ctx.fillStyle = "#5a0f0f"; // rojo oscuro cuphead
-        ctx.fillRect(boss.x, boss.y, boss.width, boss.height);
-    }
-
-    // ===== BARRA DE VIDA DEL JEFE (UI CLÁSICA) =====
-    const barWidth = 320;
-    const healthRatio = boss.health / boss.maxHealth;
-
+    // Barra vida jefe
+    const barWidth = 400;
     ctx.fillStyle = "#2b1f1a";
-    ctx.fillRect(canvas.width - barWidth - 20, 20, barWidth, 25);
+    ctx.fillRect(canvas.width-barWidth-20,20,barWidth,25);
+    ctx.fillStyle = "#c19a6b";
+    ctx.fillRect(canvas.width-barWidth-20,20,(boss.health/boss.maxHealth)*barWidth,25);
 
-    ctx.fillStyle = "#c19a6b"; // dorado vintage
-    ctx.fillRect(
-        canvas.width - barWidth - 20,
-        20,
-        barWidth * healthRatio,
-        25
-    );
-
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(canvas.width - barWidth - 20, 20, barWidth, 25);
-
-    // ===== MINIONS =====
-    minions.forEach((m) => {
-        if (minionImg.complete) {
-            ctx.drawImage(minionImg, m.x, m.y, m.width, m.height);
-        } else {
-            ctx.fillStyle = "#2b2b2b";
-            ctx.fillRect(m.x, m.y, m.width, m.height);
-        }
+    // Minions
+    minions.forEach(m=>{
+        ctx.save();
+        ctx.scale(-1,1);
+        ctx.drawImage(minionImg,-m.x-m.width,m.y,m.width,m.height);
+        ctx.restore();
     });
 
-    // ===== BALAS ENEMIGAS =====
-    enemyBullets.forEach((b) => {
-        if (bulletImg.complete) {
-            ctx.drawImage(bulletImg, b.x, b.y, b.width, b.height);
-        } else {
-            ctx.fillStyle = "#c19a6b";
-            ctx.fillRect(b.x, b.y, b.width, b.height);
-        }
+    // Balas jugador animadas
+    bullets.forEach(b=>{
+        b.pulse+=0.2;
+        let r=b.radius+Math.sin(b.pulse)*2;
+        ctx.beginPath();
+        ctx.arc(b.x,b.y,r,0,Math.PI*2);
+        ctx.fillStyle="#fff8dc";
+        ctx.fill();
     });
 
-    // ===== FILTRO VINTAGE (EFECTO CUPHEAD AÑOS 30) =====
-    ctx.fillStyle = "rgba(255, 244, 200, 0.04)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Balas enemigas animadas
+    enemyBullets.forEach(b=>{
+        b.pulse+=0.3;
+        let r=b.radius+Math.sin(b.pulse)*3;
+        ctx.beginPath();
+        ctx.arc(b.x,b.y,r,0,Math.PI*2);
+        ctx.fillStyle="#ff6600";
+        ctx.fill();
+    });
+
+    // Jugador con animación idle
+    let offset = Math.sin(player.bob)*4;
+    ctx.globalAlpha = isDead ? 1-fadeAlpha : 1;
+    ctx.drawImage(playerImg,player.x,player.y+offset,player.width,player.height);
+    ctx.globalAlpha=1;
+
+    // Fade muerte
+    if(isDead){
+        fadeAlpha+=0.02;
+        if(fadeAlpha>1) fadeAlpha=1;
+    }
+
+    // Vidas
+    ctx.fillStyle="white";
+    ctx.font="20px Georgia";
+    ctx.fillText("Vidas: "+lives,20,30);
 }
 
-// ================= GAME LOOP =================
-function gameLoop() {
+// ================= LOOP =================
+function gameLoop(){
     update();
     draw();
     requestAnimationFrame(gameLoop);
 }
 
-// ================= INICIO =================
 gameLoop();
