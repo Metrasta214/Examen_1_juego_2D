@@ -4,9 +4,11 @@ const ctx = canvas.getContext("2d");
 
 // ================= UI =================
 const scoreElement = document.getElementById("score");
-
 let score = 0;
-
+// ================= ESTADOS =================
+let gameState = "intro"; // intro, playing, dead
+let introTimer = 0;
+let wallopTimer = 0;
 // ================= VIDAS =================
 let lives = 3;
 let maxLives = 3;
@@ -17,7 +19,6 @@ let invulnerableTimer = 0;
 
 // ================= EFECTOS =================
 let screenShake = 0;
-const explosions = [];
 
 // ================= PLATAFORMA =================
 const platform = {
@@ -33,9 +34,6 @@ playerImg.src = "assets/player.png";
 
 const bossImg = new Image();
 bossImg.src = "assets/boss.png";
-
-const minionImg = new Image();
-minionImg.src = "assets/minion.png";
 
 const backgroundImg = new Image();
 backgroundImg.src = "assets/background.png";
@@ -61,7 +59,6 @@ const player = {
 // ================= ARRAYS =================
 const bullets = [];
 const enemyBullets = [];
-const minions = [];
 
 // ================= JEFE =================
 const boss = {
@@ -69,14 +66,15 @@ const boss = {
     y: 60,
     width: 300,
     height: 300,
-    direction: 1,
-    speedY: 1,
-    shootTimer: 0,
-    summonTimer: 0,
+    baseY: 60,
     health: 10000,
     maxHealth: 10000,
     phase: 1,
-    lastAttackTime: 0
+    lastAttackTime: 0,
+    lastRainTime: 0,
+    charging: false,
+    chargeTimer: 0,
+    diving: false
 };
 
 // ================= COLISION =================
@@ -94,13 +92,14 @@ function killPlayer() {
     if (isDead || invulnerable) return;
 
     lives--;
-    isDead = true;
-    respawnDelay = 90;
 
     if (lives <= 0) {
-        alert("GAME OVER");
-        location.reload();
+        gameState = "dead";
+        return;
     }
+
+    isDead = true;
+    respawnDelay = 90;
 }
 
 // ================= DISPARO =================
@@ -159,7 +158,6 @@ function update() {
         player.onGround = true;
     }
 
-    // Plataforma
     if (
         player.y + player.height <= platform.y + 10 &&
         player.y + player.height + player.dy >= platform.y &&
@@ -181,51 +179,28 @@ function update() {
             continue;
         }
 
-        if (collision({ x: b.x, y: b.y, width: 1, height: 1 }, boss)) {
+        if (collision(b, boss)) {
             boss.health -= b.damage;
-            screenShake = 8;
+            screenShake = 6;
             bullets.splice(i, 1);
 
             if (boss.health <= boss.maxHealth / 2)
                 boss.phase = 2;
-
-            continue;
-        }
-
-        for (let j = minions.length - 1; j >= 0; j--) {
-            let m = minions[j];
-            if (collision({ x: b.x, y: b.y, width: 1, height: 1 }, m)) {
-                m.health -= b.damage;
-                bullets.splice(i, 1);
-
-                if (m.health <= 0) {
-                    explosions.push({
-                        x: m.x + m.width / 2,
-                        y: m.y + m.height / 2,
-                        radius: 0
-                    });
-                    minions.splice(j, 1);
-                }
-                break;
-            }
         }
     }
 
-    // Movimiento jefe
-    boss.y += boss.speedY * boss.direction;
-    if (boss.y <= 20 || boss.y + boss.height >= canvas.height - 20)
-        boss.direction *= -1;
-    // ===== COLISIÓN DIRECTA CON EL JEFE =====
+    // Colisión directa con jefe
     if (!invulnerable && collision(player, boss)) {
         killPlayer();
     }
-    // ===== DISPARO JEFE CADA 3 SEGUNDOS =====
 
-    let currentTime = Date.now();
+    let now = Date.now();
+    let attackInterval = boss.phase === 1 ? 3000 : 2000;
 
-    if (currentTime - boss.lastAttackTime > 3000) {
+    // ===== ATAQUE NORMAL =====
+    if (now - boss.lastAttackTime > attackInterval) {
 
-        // 🔥 2 balas normales
+        // 2 balas normales
         for (let i = 0; i < 2; i++) {
             enemyBullets.push({
                 x: boss.x,
@@ -238,7 +213,7 @@ function update() {
             });
         }
 
-        // 🔥 1 bala tracking suave
+        // Tracking suave
         let dx = player.x - boss.x;
         let dy = player.y - boss.y;
         let length = Math.sqrt(dx * dx + dy * dy);
@@ -254,35 +229,47 @@ function update() {
             life: 200
         });
 
-        boss.lastAttackTime = currentTime;
+        boss.lastAttackTime = now;
     }
 
-    // ===== INVOCAR MINIONS =====
-    boss.summonTimer++;
-    let summonDelay = boss.phase === 1 ? 450 : 300;
-
-    if (boss.summonTimer > summonDelay) {
-        minions.push({
-            x: canvas.width + 50,
-            y: boss.y + 180,
-            width: 90,
-            height: 90,
-            speed: 3,
-            health: 100
-        });
-        boss.summonTimer = 0;
+    // ===== LLUVIA SOLAR =====
+    if (now - boss.lastRainTime > 8000) {
+        for (let i = 0; i < 5; i++) {
+            enemyBullets.push({
+                x: Math.random() * canvas.width,
+                y: -20,
+                width: 8,
+                height: 14,
+                vx: 0,
+                vy: 5,
+                type: "rain"
+            });
+        }
+        boss.lastRainTime = now;
     }
 
-    // Movimiento minions
-    for (let i = minions.length - 1; i >= 0; i--) {
-        let m = minions[i];
-        m.x -= m.speed;
+    // ===== EMBESTIDA SIMPLE =====
+    if (!boss.diving && !boss.charging && Math.random() < 0.002) {
+        boss.charging = true;
+        boss.chargeTimer = 60;
+    }
 
-        if (!invulnerable && collision(player, m))
-            killPlayer();
+    if (boss.charging) {
+        boss.chargeTimer--;
+        if (boss.chargeTimer <= 0) {
+            boss.charging = false;
+            boss.diving = true;
+        }
+    }
 
-        if (m.x + m.width < -50)
-            minions.splice(i, 1);
+    if (boss.diving) {
+        boss.y += 10;
+        if (boss.y + boss.height >= canvas.height - 20) {
+            boss.diving = false;
+        }
+    } else if (!boss.charging) {
+        if (boss.y > boss.baseY)
+            boss.y -= 5;
     }
 
     // ===== BALAS ENEMIGAS =====
@@ -290,25 +277,17 @@ function update() {
 
         let b = enemyBullets[i];
 
-        if (b.type === "normal") {
-            b.x += b.vx;
-            b.y += b.vy;
-        }
+        b.x += b.vx;
+        b.y += b.vy;
 
         if (b.type === "tracking") {
-
             let dx = player.x - b.x;
             let dy = player.y - b.y;
             let length = Math.sqrt(dx * dx + dy * dy);
 
-            // 🔻 Giro mucho más suave (ANTES 0.1)
-            let steerX = (dx / length) * 0.04;
-            let steerY = (dy / length) * 0.04;
+            b.vx += (dx / length) * 0.04;
+            b.vy += (dy / length) * 0.04;
 
-            b.vx += steerX;
-            b.vy += steerY;
-
-            // 🔻 Velocidad máxima más baja (ANTES 3)
             let speedLimit = 2.2;
             let speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
 
@@ -317,12 +296,7 @@ function update() {
                 b.vy = (b.vy / speed) * speedLimit;
             }
 
-            b.x += b.vx;
-            b.y += b.vy;
-
-            // 🔻 Dura menos tiempo (ANTES 240)
             b.life--;
-
             if (b.life <= 0) {
                 enemyBullets.splice(i, 1);
                 continue;
@@ -335,18 +309,10 @@ function update() {
         if (
             b.x < -30 ||
             b.x > canvas.width + 30 ||
-            b.y < -30 ||
             b.y > canvas.height + 30
         ) {
             enemyBullets.splice(i, 1);
         }
-    }
-
-    // Explosiones
-    for (let i = explosions.length - 1; i >= 0; i--) {
-        explosions[i].radius += 4;
-        if (explosions[i].radius > 30)
-            explosions.splice(i, 1);
     }
 
     scoreElement.textContent = score;
@@ -369,8 +335,60 @@ function draw() {
     ctx.fillStyle = "#5a3e2b";
     ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
 
+    // ===== AURA CINEMÁTICA PRO =====
+    if (boss.charging) {
+
+        let centerX = boss.x + boss.width / 2;
+        let centerY = boss.y + boss.height / 2;
+
+        // Pulso dinámico
+        let pulse = Math.sin(Date.now() * 0.01) * 15;
+
+        // Oscurecer ligeramente fondo
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Gradiente radial rojo intenso
+        let gradient = ctx.createRadialGradient(
+            centerX,
+            centerY,
+            boss.width / 3,
+            centerX,
+            centerY,
+            boss.width / 2 + 60 + pulse
+        );
+
+        gradient.addColorStop(0, "rgba(255,80,0,0.9)");
+        gradient.addColorStop(0.4, "rgba(255,0,0,0.7)");
+        gradient.addColorStop(1, "rgba(255,0,0,0)");
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, boss.width / 2 + 60 + pulse, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ondas energéticas expansivas
+        for (let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.arc(
+                centerX,
+                centerY,
+                boss.width / 2 + 80 + pulse + i * 25,
+                0,
+                Math.PI * 2
+            );
+            ctx.strokeStyle = "rgba(255,120,0,0.4)";
+            ctx.lineWidth = 4;
+            ctx.stroke();
+        }
+
+        // Pequeño screen shake
+        screenShake = 3;
+    }
+
     ctx.drawImage(bossImg, boss.x, boss.y, boss.width, boss.height);
 
+    // Barra jefe
     const barWidth = 400;
     const barX = canvas.width / 2 - barWidth / 2;
 
@@ -381,6 +399,7 @@ function draw() {
     ctx.fillRect(barX, 25,
         (boss.health / boss.maxHealth) * barWidth, 20);
 
+    // Barra jugador
     ctx.fillStyle = "#2a1f1a";
     ctx.fillRect(20, canvas.height - 40, 150, 15);
 
@@ -388,27 +407,15 @@ function draw() {
     ctx.fillRect(20, canvas.height - 40,
         (lives / maxLives) * 150, 15);
 
-    minions.forEach(m => {
-        ctx.drawImage(minionImg, m.x, m.y, m.width, m.height);
-    });
-
-    explosions.forEach(e => {
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
-        ctx.fillStyle = "orange";
-        ctx.fill();
-    });
-
+    // Balas jugador
     ctx.fillStyle = "#fff8dc";
-    bullets.forEach(b => {
-        ctx.fillRect(b.x, b.y, b.width, b.height);
-    });
+    bullets.forEach(b => ctx.fillRect(b.x, b.y, b.width, b.height));
 
+    // Balas enemigas
     ctx.fillStyle = "#ff6600";
-    enemyBullets.forEach(b => {
-        ctx.fillRect(b.x, b.y, b.width, b.height);
-    });
+    enemyBullets.forEach(b => ctx.fillRect(b.x, b.y, b.width, b.height));
 
+    // Jugador con parpadeo
     if (invulnerable) {
         if (Math.floor(invulnerableTimer / 10) % 2 === 0)
             ctx.globalAlpha = 0.3;
