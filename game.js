@@ -4,20 +4,22 @@ const ctx = canvas.getContext("2d");
 
 // ================= UI =================
 const scoreElement = document.getElementById("score");
-const highScoreElement = document.getElementById("highScore");
 
 let score = 0;
-let highScore = localStorage.getItem("cupheadHighScore") || 0;
-highScoreElement.textContent = highScore;
 
 // ================= VIDAS =================
 let lives = 3;
+let maxLives = 3;
 let isDead = false;
 let respawnDelay = 0;
 let invulnerable = false;
 let invulnerableTimer = 0;
 
-// ================= PLATAFORMA (AJUSTADA) =================
+// ================= EFECTOS =================
+let screenShake = 0;
+const explosions = [];
+
+// ================= PLATAFORMA =================
 const platform = {
     x: 250,
     y: 340,
@@ -72,7 +74,9 @@ const boss = {
     shootTimer: 0,
     summonTimer: 0,
     health: 10000,
-    maxHealth: 10000
+    maxHealth: 10000,
+    phase: 1,
+    lastAttackTime: 0
 };
 
 // ================= COLISION =================
@@ -87,7 +91,6 @@ function collision(a, b) {
 
 // ================= MORIR =================
 function killPlayer() {
-
     if (isDead || invulnerable) return;
 
     lives--;
@@ -117,7 +120,7 @@ canvas.addEventListener("click", () => {
 // ================= UPDATE =================
 function update() {
 
-    // ===== RESPAWN =====
+    // Respawn
     if (isDead) {
         respawnDelay--;
         if (respawnDelay <= 0) {
@@ -125,22 +128,19 @@ function update() {
             player.y = 360;
             player.dy = 0;
             isDead = false;
-
             invulnerable = true;
             invulnerableTimer = 180;
         }
         return;
     }
 
-    // ===== INMUNIDAD =====
     if (invulnerable) {
         invulnerableTimer--;
-        if (invulnerableTimer <= 0) {
+        if (invulnerableTimer <= 0)
             invulnerable = false;
-        }
     }
 
-    // ===== MOVIMIENTO =====
+    // Movimiento
     if (keys["a"] && player.x > 0) player.x -= player.speed;
     if (keys["d"] && player.x + player.width < canvas.width)
         player.x += player.speed;
@@ -173,7 +173,6 @@ function update() {
 
     // ===== BALAS JUGADOR =====
     for (let i = bullets.length - 1; i >= 0; i--) {
-
         let b = bullets[i];
         b.x += b.speed;
 
@@ -182,51 +181,87 @@ function update() {
             continue;
         }
 
-        if (collision({x:b.x,y:b.y,width:1,height:1}, boss)) {
+        if (collision({ x: b.x, y: b.y, width: 1, height: 1 }, boss)) {
             boss.health -= b.damage;
-            score += 100;
+            screenShake = 8;
             bullets.splice(i, 1);
+
+            if (boss.health <= boss.maxHealth / 2)
+                boss.phase = 2;
+
             continue;
         }
 
         for (let j = minions.length - 1; j >= 0; j--) {
             let m = minions[j];
-            if (collision({x:b.x,y:b.y,width:1,height:1}, m)) {
+            if (collision({ x: b.x, y: b.y, width: 1, height: 1 }, m)) {
                 m.health -= b.damage;
                 bullets.splice(i, 1);
 
                 if (m.health <= 0) {
+                    explosions.push({
+                        x: m.x + m.width / 2,
+                        y: m.y + m.height / 2,
+                        radius: 0
+                    });
                     minions.splice(j, 1);
-                    score += 100;
                 }
                 break;
             }
         }
     }
 
-    // ===== MOVIMIENTO JEFE =====
+    // Movimiento jefe
     boss.y += boss.speedY * boss.direction;
     if (boss.y <= 20 || boss.y + boss.height >= canvas.height - 20)
         boss.direction *= -1;
+    // ===== COLISIÓN DIRECTA CON EL JEFE =====
+    if (!invulnerable && collision(player, boss)) {
+        killPlayer();
+    }
+    // ===== DISPARO JEFE CADA 3 SEGUNDOS =====
 
-    // ===== DISPARO JEFE =====
-    boss.shootTimer++;
-    if (boss.shootTimer > 150) {
-        for (let i = 0; i < 4; i++) {
+    let currentTime = Date.now();
+
+    if (currentTime - boss.lastAttackTime > 3000) {
+
+        // 🔥 2 balas normales
+        for (let i = 0; i < 2; i++) {
             enemyBullets.push({
                 x: boss.x,
-                y: boss.y + 50 + i * 50,
+                y: boss.y + 80 + i * 80,
                 width: 10,
                 height: 10,
-                speed: -4
+                vx: -4,
+                vy: 0,
+                type: "normal"
             });
         }
-        boss.shootTimer = 0;
+
+        // 🔥 1 bala tracking suave
+        let dx = player.x - boss.x;
+        let dy = player.y - boss.y;
+        let length = Math.sqrt(dx * dx + dy * dy);
+
+        enemyBullets.push({
+            x: boss.x,
+            y: boss.y + boss.height / 2,
+            width: 12,
+            height: 12,
+            vx: (dx / length) * 2,
+            vy: (dy / length) * 2,
+            type: "tracking",
+            life: 200
+        });
+
+        boss.lastAttackTime = currentTime;
     }
 
-    // ===== MINIONS TIPO PROYECTIL =====
+    // ===== INVOCAR MINIONS =====
     boss.summonTimer++;
-    if (boss.summonTimer > 450) {
+    let summonDelay = boss.phase === 1 ? 450 : 300;
+
+    if (boss.summonTimer > summonDelay) {
         minions.push({
             x: canvas.width + 50,
             y: boss.y + 180,
@@ -238,6 +273,7 @@ function update() {
         boss.summonTimer = 0;
     }
 
+    // Movimiento minions
     for (let i = minions.length - 1; i >= 0; i--) {
         let m = minions[i];
         m.x -= m.speed;
@@ -251,14 +287,66 @@ function update() {
 
     // ===== BALAS ENEMIGAS =====
     for (let i = enemyBullets.length - 1; i >= 0; i--) {
+
         let b = enemyBullets[i];
-        b.x += b.speed;
+
+        if (b.type === "normal") {
+            b.x += b.vx;
+            b.y += b.vy;
+        }
+
+        if (b.type === "tracking") {
+
+            let dx = player.x - b.x;
+            let dy = player.y - b.y;
+            let length = Math.sqrt(dx * dx + dy * dy);
+
+            // 🔻 Giro mucho más suave (ANTES 0.1)
+            let steerX = (dx / length) * 0.04;
+            let steerY = (dy / length) * 0.04;
+
+            b.vx += steerX;
+            b.vy += steerY;
+
+            // 🔻 Velocidad máxima más baja (ANTES 3)
+            let speedLimit = 2.2;
+            let speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+
+            if (speed > speedLimit) {
+                b.vx = (b.vx / speed) * speedLimit;
+                b.vy = (b.vy / speed) * speedLimit;
+            }
+
+            b.x += b.vx;
+            b.y += b.vy;
+
+            // 🔻 Dura menos tiempo (ANTES 240)
+            b.life--;
+
+            if (b.life <= 0) {
+                enemyBullets.splice(i, 1);
+                continue;
+            }
+        }
 
         if (!invulnerable && collision(player, b))
             killPlayer();
 
-        if (b.x < -20)
+        if (
+            b.x < -30 ||
+            b.x > canvas.width + 30 ||
+            b.y < -30 ||
+            b.y > canvas.height + 30
+        ) {
             enemyBullets.splice(i, 1);
+        }
+    }
+
+    // Explosiones
+    for (let i = explosions.length - 1; i >= 0; i--) {
+        explosions[i].radius += 4;
+        if (explosions[i].radius > 30)
+            explosions.splice(i, 1);
     }
 
     scoreElement.textContent = score;
@@ -267,69 +355,73 @@ function update() {
 // ================= DRAW =================
 function draw() {
 
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.drawImage(backgroundImg,0,0,canvas.width,canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Plataforma
-    ctx.fillStyle = "#8B4513";
+    let shakeX = screenShake ? (Math.random() - 0.5) * screenShake : 0;
+    let shakeY = screenShake ? (Math.random() - 0.5) * screenShake : 0;
+    if (screenShake > 0) screenShake--;
+
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+
+    ctx.drawImage(backgroundImg, 0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "#5a3e2b";
     ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
 
-    // Jefe
-    ctx.drawImage(bossImg,boss.x,boss.y,boss.width,boss.height);
+    ctx.drawImage(bossImg, boss.x, boss.y, boss.width, boss.height);
 
-    // ===== BARRA DE VIDA ESTILO =====
     const barWidth = 400;
-    const barHeight = 22;
     const barX = canvas.width / 2 - barWidth / 2;
-    const barY = 25;
-
-    ctx.fillStyle = "#8b6f3d";
-    ctx.fillRect(barX - 4, barY - 4, barWidth + 8, barHeight + 8);
 
     ctx.fillStyle = "#2a1f1a";
-    ctx.fillRect(barX, barY, barWidth, barHeight);
+    ctx.fillRect(barX, 25, barWidth, 20);
 
     ctx.fillStyle = "#c19a6b";
-    ctx.fillRect(
-        barX,
-        barY,
-        (boss.health / boss.maxHealth) * barWidth,
-        barHeight
-    );
+    ctx.fillRect(barX, 25,
+        (boss.health / boss.maxHealth) * barWidth, 20);
 
-    // Minions
-    minions.forEach(m=>{
-        ctx.drawImage(minionImg,m.x,m.y,m.width,m.height);
+    ctx.fillStyle = "#2a1f1a";
+    ctx.fillRect(20, canvas.height - 40, 150, 15);
+
+    ctx.fillStyle = "#c19a6b";
+    ctx.fillRect(20, canvas.height - 40,
+        (lives / maxLives) * 150, 15);
+
+    minions.forEach(m => {
+        ctx.drawImage(minionImg, m.x, m.y, m.width, m.height);
     });
 
-    // Balas jugador
-    ctx.fillStyle="#fff8dc";
-    bullets.forEach(b=>{
-        ctx.fillRect(b.x,b.y,b.width,b.height);
+    explosions.forEach(e => {
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "orange";
+        ctx.fill();
     });
 
-    // Balas enemigas
-    ctx.fillStyle="#ff6600";
-    enemyBullets.forEach(b=>{
-        ctx.fillRect(b.x,b.y,b.width,b.height);
+    ctx.fillStyle = "#fff8dc";
+    bullets.forEach(b => {
+        ctx.fillRect(b.x, b.y, b.width, b.height);
     });
 
-    // Jugador con parpadeo
+    ctx.fillStyle = "#ff6600";
+    enemyBullets.forEach(b => {
+        ctx.fillRect(b.x, b.y, b.width, b.height);
+    });
+
     if (invulnerable) {
         if (Math.floor(invulnerableTimer / 10) % 2 === 0)
             ctx.globalAlpha = 0.3;
     }
 
-    ctx.drawImage(playerImg,player.x,player.y,player.width,player.height);
+    ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
     ctx.globalAlpha = 1;
 
-    ctx.fillStyle="white";
-    ctx.font="18px Georgia";
-    ctx.fillText("Vidas: "+lives,20,30);
+    ctx.restore();
 }
 
 // ================= LOOP =================
-function gameLoop(){
+function gameLoop() {
     update();
     draw();
     requestAnimationFrame(gameLoop);
