@@ -104,7 +104,13 @@ function killPlayer() {
 
 // ================= DISPARO =================
 canvas.addEventListener("click", () => {
-    if (isDead) return;
+
+    if (gameState === "dead") {
+        location.reload();
+        return;
+    }
+
+    if (isDead || gameState !== "playing") return;
 
     bullets.push({
         x: player.x + player.width,
@@ -116,8 +122,14 @@ canvas.addEventListener("click", () => {
     });
 });
 
-// ================= UPDATE =================
 function update() {
+
+    // Detener shake cuando termina el juego
+    if (gameState === "victory" || gameState === "dead") {
+        screenShake = 0;
+    }
+
+    if (gameState !== "playing") return;
 
     // Respawn
     if (isDead) {
@@ -171,6 +183,7 @@ function update() {
 
     // ===== BALAS JUGADOR =====
     for (let i = bullets.length - 1; i >= 0; i--) {
+
         let b = bullets[i];
         b.x += b.speed;
 
@@ -180,12 +193,19 @@ function update() {
         }
 
         if (collision(b, boss)) {
+
             boss.health -= b.damage;
             screenShake = 6;
             bullets.splice(i, 1);
 
             if (boss.health <= boss.maxHealth / 2)
                 boss.phase = 2;
+
+            // ===== MUERTE DEL JEFE =====
+            if (boss.health <= 0) {
+                boss.health = 0;
+                gameState = "victory";
+            }
         }
     }
 
@@ -200,7 +220,6 @@ function update() {
     // ===== ATAQUE NORMAL =====
     if (now - boss.lastAttackTime > attackInterval) {
 
-        // 2 balas normales
         for (let i = 0; i < 2; i++) {
             enemyBullets.push({
                 x: boss.x,
@@ -213,7 +232,6 @@ function update() {
             });
         }
 
-        // Tracking suave
         let dx = player.x - boss.x;
         let dy = player.y - boss.y;
         let length = Math.sqrt(dx * dx + dy * dy);
@@ -234,6 +252,7 @@ function update() {
 
     // ===== LLUVIA SOLAR =====
     if (now - boss.lastRainTime > 8000) {
+
         for (let i = 0; i < 5; i++) {
             enemyBullets.push({
                 x: Math.random() * canvas.width,
@@ -245,6 +264,7 @@ function update() {
                 type: "rain"
             });
         }
+
         boss.lastRainTime = now;
     }
 
@@ -281,6 +301,7 @@ function update() {
         b.y += b.vy;
 
         if (b.type === "tracking") {
+
             let dx = player.x - b.x;
             let dy = player.y - b.y;
             let length = Math.sqrt(dx * dx + dy * dy);
@@ -323,9 +344,15 @@ function draw() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    let shakeX = screenShake ? (Math.random() - 0.5) * screenShake : 0;
-    let shakeY = screenShake ? (Math.random() - 0.5) * screenShake : 0;
-    if (screenShake > 0) screenShake--;
+    // SHAKE solo durante gameplay
+    let shakeX = 0;
+    let shakeY = 0;
+
+    if (gameState === "playing" && screenShake > 0) {
+        shakeX = (Math.random() - 0.5) * screenShake;
+        shakeY = (Math.random() - 0.5) * screenShake;
+        screenShake--;
+    }
 
     ctx.save();
     ctx.translate(shakeX, shakeY);
@@ -341,14 +368,11 @@ function draw() {
         let centerX = boss.x + boss.width / 2;
         let centerY = boss.y + boss.height / 2;
 
-        // Pulso dinámico
         let pulse = Math.sin(Date.now() * 0.01) * 15;
 
-        // Oscurecer ligeramente fondo
         ctx.fillStyle = "rgba(0,0,0,0.25)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Gradiente radial rojo intenso
         let gradient = ctx.createRadialGradient(
             centerX,
             centerY,
@@ -367,7 +391,6 @@ function draw() {
         ctx.arc(centerX, centerY, boss.width / 2 + 60 + pulse, 0, Math.PI * 2);
         ctx.fill();
 
-        // Ondas energéticas expansivas
         for (let i = 0; i < 3; i++) {
             ctx.beginPath();
             ctx.arc(
@@ -382,7 +405,6 @@ function draw() {
             ctx.stroke();
         }
 
-        // Pequeño screen shake
         screenShake = 3;
     }
 
@@ -424,7 +446,46 @@ function draw() {
     ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
     ctx.globalAlpha = 1;
 
-    ctx.restore();
+    ctx.restore(); // 🔥 IMPORTANTÍSIMO
+
+    // ================= INTRO READY / WALLOP =================
+    if (gameState === "intro") {
+
+        ctx.fillStyle = "rgba(0,0,0,0.85)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#f4e8c1";
+
+        if (introTimer < 120) {
+            ctx.font = "bold 90px Georgia";
+            ctx.fillText("READY?", canvas.width / 2, canvas.height / 2);
+        } else if (introTimer < 240) {
+            ctx.font = "bold 100px Georgia";
+            ctx.fillText("WALLOP!", canvas.width / 2, canvas.height / 2);
+        } else {
+            gameState = "playing";
+        }
+
+        introTimer++;
+    }
+
+    // ================= VICTORIA =================
+    if (gameState === "victory") {
+
+        ctx.fillStyle = "rgba(0,0,0,0.85)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.textAlign = "center";
+
+        ctx.fillStyle = "#f4e8c1";
+        ctx.font = "bold 90px Georgia";
+        ctx.fillText("KNOCKOUT!", canvas.width / 2, canvas.height / 2 - 20);
+
+        ctx.font = "28px Georgia";
+        ctx.fillStyle = "#c19a6b";
+        ctx.fillText("The Sun Has Fallen!", canvas.width / 2, canvas.height / 2 + 40);
+    }
 }
 
 // ================= LOOP =================
