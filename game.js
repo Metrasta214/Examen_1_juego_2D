@@ -9,6 +9,20 @@ let attackPatternIndex = 0;
 // ================= CANVAS =================
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
+// ================= FULLSCREEN SEGURO =================
+document.addEventListener("fullscreenchange", () => {
+
+    if (document.fullscreenElement) {
+        canvas.style.width = "100vw";
+        canvas.style.height = "100vh";
+        canvas.style.objectFit = "contain";
+    } else {
+        canvas.style.width = "";
+        canvas.style.height = "";
+        canvas.style.objectFit = "";
+    }
+
+});
 
 // ================= UI =================
 const scoreElement = document.getElementById("score");
@@ -74,6 +88,39 @@ document.addEventListener("keydown", (e) => {
             document.exitFullscreen();
         }
 
+    }
+
+});
+
+// ================= REINICIO CON TECLA R =================
+document.addEventListener("keydown", (e) => {
+
+    if (e.key.toLowerCase() === "r" &&
+        (gameState === "victory" || gameState === "dead")) {
+
+        gameState = "intro";
+        bossState = "alive";
+        boss.health = boss.maxHealth;
+        boss.y = boss.baseY;
+        bossRotation = 0;
+
+        bullets.length = 0;
+        enemyBullets.length = 0;
+        minions.length = 0;
+
+        lives = 3;
+        isDead = false;
+        invulnerable = false;
+        invulnerableTimer = 0;
+
+        isFinalPhase = false;
+        currentMusic = "none";
+
+        musicNormal.pause();
+        musicFinal.pause();
+
+        introTimer = 0;
+        victoryTimer = 0;
     }
 
 });
