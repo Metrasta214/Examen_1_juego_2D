@@ -6,6 +6,10 @@ let musicFadeSpeed = 0.02;
 let lastFinalRainTime = 0;
 let lastFinalShotTime = 0;
 let attackPatternIndex = 0;
+let mouseX = 0;
+let mouseY = 0;
+let cursorPulse = 0;
+
 // ================= CANVAS =================
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -23,10 +27,31 @@ document.addEventListener("fullscreenchange", () => {
     }
 
 });
-
+canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+});
 // ================= UI =================
 const scoreElement = document.getElementById("score");
 let score = 0;
+let level = 1;
+let difficultyMultiplier = 1;
+
+let highScore = localStorage.getItem("highScore")
+    ? parseInt(localStorage.getItem("highScore"))
+    : 0;
+
+document.getElementById("highScore").innerText = highScore;
+
+function addScore(points) {
+    score += points;
+    scoreElement.innerText = score;
+
+    checkLevelUp();
+}
+
+
 // ================= ESTADOS =================
 let gameState = "intro"; // intro, playing, dead
 let bossState = "alive"; // alive | falling | defeated
@@ -97,6 +122,12 @@ document.addEventListener("keydown", (e) => {
 
     if (e.key.toLowerCase() === "r" &&
         (gameState === "victory" || gameState === "dead")) {
+
+        // Reset score y dificultad
+        score = 0;
+        level = 1;
+        difficultyMultiplier = 1;
+        scoreElement.innerText = 0;
 
         gameState = "intro";
         bossState = "alive";
@@ -181,7 +212,17 @@ function crossfadeToFinal() {
 
     }, 50);
 }
+function checkLevelUp() {
 
+    let newLevel = Math.floor(score / 800) + 1;
+
+    if (newLevel > level) {
+        level = newLevel;
+        difficultyMultiplier += 0.4;
+
+        console.log("Nivel:", level);
+    }
+}
 // ================= COLISION =================
 function collision(a, b) {
     return (
@@ -368,7 +409,7 @@ function update() {
         }
 
         if (bossState === "alive" && collision(b, boss)) {
-
+            addScore(10);
             boss.health -= b.damage;
             bullets.splice(i, 1);
             screenShake = 6;
@@ -396,7 +437,7 @@ function update() {
                 y: boss.y + boss.height / 2,
                 width: 90,   // 🔥 antes 40
                 height: 90,  // 🔥 antes 40
-                speed: 2,
+                speed: 2 * difficultyMultiplier,
                 health: 200
             });
 
@@ -439,8 +480,8 @@ function update() {
                         y: boss.y + boss.height / 2,
                         width: 16,
                         height: 16,
-                        vx: (dx / length) * 2.5,
-                        vy: (dy / length) * 2.5,
+                        vx: (dx / length) * 2.5 * difficultyMultiplier,
+                        vy: (dy / length) * 2.5 * difficultyMultiplier,
                         type: "tracking",
                         life: 220
                     });
@@ -466,7 +507,7 @@ function update() {
                         y: boss.y + 80 + i * 70,
                         width: 12,
                         height: 12,
-                        vx: -3.5,
+                        vx: -3.5 * difficultyMultiplier,
                         vy: 0,
                         type: "normal"
                     });
@@ -590,6 +631,7 @@ function update() {
                 bullets.splice(j, 1);
 
                 if (m.health <= 0) {
+                    addScore(200);
                     minions.splice(i, 1);
                     break;
                 }
@@ -619,6 +661,12 @@ function update() {
         if (victoryTimer <= 0) {
             gameState = "victory";
         }
+    }
+    // Guardar HighScore automáticamente
+    if ((gameState === "victory" || gameState === "dead") && score > highScore) {
+        highScore = score;
+        localStorage.setItem("highScore", highScore);
+        document.getElementById("highScore").innerText = highScore;
     }
 }
 
@@ -801,9 +849,48 @@ function draw() {
 
         drawRestartButton("#ff8a65", "#d84315");
     }
+    drawCustomCursor();
 }
-
 // ================= BOTÓN REINICIO =================
+function drawCustomCursor() {
+
+    cursorPulse += 0.1;
+
+    let pulseSize = Math.sin(cursorPulse) * 3;
+
+    ctx.save();
+
+    ctx.translate(mouseX, mouseY);
+
+    // Círculo exterior
+    ctx.beginPath();
+    ctx.arc(0, 0, 18 + pulseSize, 0, Math.PI * 2);
+    ctx.strokeStyle = "#fff176";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Círculo interior
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    ctx.fillStyle = "#ff9800";
+    ctx.fill();
+
+    // Líneas cruzadas
+    ctx.beginPath();
+    ctx.moveTo(-25, 0);
+    ctx.lineTo(-10, 0);
+    ctx.moveTo(25, 0);
+    ctx.lineTo(10, 0);
+    ctx.moveTo(0, -25);
+    ctx.lineTo(0, -10);
+    ctx.moveTo(0, 25);
+    ctx.lineTo(0, 10);
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.restore();
+}
 function drawRestartButton(color1, color2) {
 
     ctx.beginPath();
@@ -833,24 +920,7 @@ function drawRestartButton(color1, color2) {
     ctx.textAlign = "center";
     ctx.fillText("↻", restartButton.x, restartButton.y + 15);
 }
-// ================= BARRA JEFE =================
-const barWidth = 400;
-const barHeight = 20;
-const barX = canvas.width / 2 - barWidth / 2;
-const barY = 25;
 
-// fondo barra
-ctx.fillStyle = "#2a1f1a";
-ctx.fillRect(barX, barY, barWidth, barHeight);
-
-// vida actual
-ctx.fillStyle = "#c19a6b";
-ctx.fillRect(
-    barX,
-    barY,
-    (boss.health / boss.maxHealth) * barWidth,
-    barHeight
-);
 // ================= LOOP =================
 function gameLoop() {
     update();

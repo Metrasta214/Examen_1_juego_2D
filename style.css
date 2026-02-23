@@ -1,7 +1,14 @@
+html, body {
+    height: 100%;
+}
+
 body {
-    background: radial-gradient(circle at center, #1a1a1a 0%, #000000 100%);
-    font-family: 'Press Start 2P', cursive;
-    color: #fff;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
 }
 
 /* ===== NAVBAR ===== */
@@ -71,7 +78,10 @@ canvas {
     box-shadow: 0 0 20px #ffc107;
 }
 
-/* ===== FOOTER ===== */
 footer {
-    font-size: 10px;
+    margin-top: auto;
+}
+
+canvas {
+    cursor: none;
 }
