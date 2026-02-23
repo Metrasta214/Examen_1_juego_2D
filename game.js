@@ -458,9 +458,27 @@ if (!boss.diving && !boss.charging && Math.random() < 0.002) {
 
 if (boss.charging) {
     boss.chargeTimer--;
-    if (boss.chargeTimer <= 0) {
-        boss.charging = false;
-        boss.diving = true;
+    if (boss.charging) {
+
+        boss.chargeTimer--;
+
+        // 🔥 LLUVIA INTENSA MIENTRAS SE ENOJA
+        if (Math.random() < 0.3) {
+            enemyBullets.push({
+                x: Math.random() * canvas.width,
+                y: -20,
+                width: 12,
+                height: 18,
+                vx: 0,
+                vy: 6,
+                type: "fireRain"
+            });
+        }
+
+        if (boss.chargeTimer <= 0) {
+            boss.charging = false;
+            boss.diving = true;
+        }
     }
 }
 
@@ -531,12 +549,11 @@ for (let i = enemyBullets.length - 1; i >= 0; i--) {
 scoreElement.textContent = score;
 
 
-// ================= DRAW =================
 function draw() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // SHAKE solo durante gameplay
+    // ================= SCREEN SHAKE =================
     let shakeX = 0;
     let shakeY = 0;
 
@@ -549,17 +566,18 @@ function draw() {
     ctx.save();
     ctx.translate(shakeX, shakeY);
 
+    // ================= FONDO =================
     ctx.drawImage(backgroundImg, 0, 0, canvas.width, canvas.height);
 
+    // ================= PLATAFORMA =================
     ctx.fillStyle = "#5a3e2b";
     ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
 
-    // ===== AURA CINEMÁTICA PRO =====
+    // ================= AURA CUANDO SE ENOJA =================
     if (boss.charging) {
 
         let centerX = boss.x + boss.width / 2;
         let centerY = boss.y + boss.height / 2;
-
         let pulse = Math.sin(Date.now() * 0.01) * 15;
 
         ctx.fillStyle = "rgba(0,0,0,0.25)";
@@ -574,8 +592,8 @@ function draw() {
             boss.width / 2 + 60 + pulse
         );
 
-        gradient.addColorStop(0, "rgba(255,80,0,0.9)");
-        gradient.addColorStop(0.4, "rgba(255,0,0,0.7)");
+        gradient.addColorStop(0, "rgba(255,120,0,0.9)");
+        gradient.addColorStop(0.4, "rgba(255,60,0,0.7)");
         gradient.addColorStop(1, "rgba(255,0,0,0)");
 
         ctx.fillStyle = gradient;
@@ -583,30 +601,16 @@ function draw() {
         ctx.arc(centerX, centerY, boss.width / 2 + 60 + pulse, 0, Math.PI * 2);
         ctx.fill();
 
-        for (let i = 0; i < 3; i++) {
-            ctx.beginPath();
-            ctx.arc(
-                centerX,
-                centerY,
-                boss.width / 2 + 80 + pulse + i * 25,
-                0,
-                Math.PI * 2
-            );
-            ctx.strokeStyle = "rgba(255,120,0,0.4)";
-            ctx.lineWidth = 4;
-            ctx.stroke();
-        }
-
         screenShake = 3;
     }
 
-    // ================= JEFE CON ROTACIÓN =================
+    // ================= JEFE (ROTACIÓN) =================
     ctx.save();
 
-    let centerX = boss.x + boss.width / 2;
-    let centerY = boss.y + boss.height / 2;
+    let bossCenterX = boss.x + boss.width / 2;
+    let bossCenterY = boss.y + boss.height / 2;
 
-    ctx.translate(centerX, centerY);
+    ctx.translate(bossCenterX, bossCenterY);
     ctx.rotate(bossRotation);
     ctx.drawImage(
         bossImg,
@@ -617,7 +621,8 @@ function draw() {
     );
 
     ctx.restore();
-    // Barra jefe
+
+    // ================= BARRA JEFE =================
     const barWidth = 400;
     const barX = canvas.width / 2 - barWidth / 2;
 
@@ -625,41 +630,71 @@ function draw() {
     ctx.fillRect(barX, 25, barWidth, 20);
 
     ctx.fillStyle = "#c19a6b";
-    ctx.fillRect(barX, 25,
-        (boss.health / boss.maxHealth) * barWidth, 20);
+    ctx.fillRect(
+        barX,
+        25,
+        (boss.health / boss.maxHealth) * barWidth,
+        20
+    );
 
-    // Barra jugador
+    // ================= BARRA JUGADOR =================
     ctx.fillStyle = "#2a1f1a";
     ctx.fillRect(20, canvas.height - 40, 150, 15);
 
     ctx.fillStyle = "#c19a6b";
-    ctx.fillRect(20, canvas.height - 40,
-        (lives / maxLives) * 150, 15);
+    ctx.fillRect(
+        20,
+        canvas.height - 40,
+        (lives / maxLives) * 150,
+        15
+    );
 
-    // Balas jugador
+    // ================= BALAS JUGADOR =================
     ctx.fillStyle = "#fff8dc";
     bullets.forEach(b => ctx.fillRect(b.x, b.y, b.width, b.height));
 
-    // Balas enemigas
+    // ================= BALAS ENEMIGAS (FUEGO) =================
     enemyBullets.forEach(b => {
 
         let centerX = b.x + b.width / 2;
         let centerY = b.y + b.height / 2;
-        let radius = b.width / 2 + 3;  // +3 hace que se vean más grandes
-        // Cuerpo del mini-sol
+        let radius = b.width / 2 + 4;
+
+        let gradient = ctx.createRadialGradient(
+            centerX,
+            centerY,
+            2,
+            centerX,
+            centerY,
+            radius
+        );
+
+        // Tracking más rojo
+        if (b.type === "tracking") {
+            gradient.addColorStop(0, "#fff176");
+            gradient.addColorStop(0.4, "#ff5722");
+            gradient.addColorStop(1, "#b71c1c");
+        }
+        // Fire rain más intenso
+        else if (b.type === "fireRain") {
+            gradient.addColorStop(0, "#fff176");
+            gradient.addColorStop(0.4, "#ff9800");
+            gradient.addColorStop(1, "#e65100");
+        }
+        // Rain normal
+        else {
+            gradient.addColorStop(0, "#fff176");
+            gradient.addColorStop(0.4, "#ff9800");
+            gradient.addColorStop(1, "#d84315");
+        }
+
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-        ctx.fillStyle = "#ff9900";
-        ctx.fill();
-
-        // Centro brillante
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius * 0.6, 0, Math.PI * 2);
-        ctx.fillStyle = "#fff176";
+        ctx.fillStyle = gradient;
         ctx.fill();
     });
 
-    // Jugador con parpadeo
+    // ================= JUGADOR (PARPADEO) =================
     if (invulnerable) {
         if (Math.floor(invulnerableTimer / 10) % 2 === 0)
             ctx.globalAlpha = 0.3;
@@ -668,9 +703,9 @@ function draw() {
     ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
     ctx.globalAlpha = 1;
 
-    ctx.restore(); // 🔥 IMPORTANTÍSIMO
+    ctx.restore();
 
-    // ================= INTRO READY / WALLOP =================
+    // ================= INTRO =================
     if (gameState === "intro") {
 
         ctx.fillStyle = "rgba(0,0,0,0.85)";
@@ -706,7 +741,11 @@ function draw() {
 
         ctx.font = "28px Georgia";
         ctx.fillStyle = "#c19a6b";
-        ctx.fillText("The Sun Has Fallen!", canvas.width / 2, canvas.height / 2 + 40);
+        ctx.fillText(
+            "The Sun Has Fallen!",
+            canvas.width / 2,
+            canvas.height / 2 + 40
+        );
     }
 }
 
