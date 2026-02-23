@@ -7,6 +7,12 @@ const scoreElement = document.getElementById("score");
 let score = 0;
 // ================= ESTADOS =================
 let gameState = "intro"; // intro, playing, dead
+let bossState = "alive"; // alive | falling | defeated
+let bossRotation = 0;
+let slowMotion = false;
+let slowFactor = 1;
+let bossFallSpeed = 0;
+let victoryTimer = 0;
 let introTimer = 0;
 let wallopTimer = 0;
 // ================= VIDAS =================
@@ -87,6 +93,14 @@ function collision(a, b) {
     );
 }
 
+function getPlayerHitbox() {
+    return {
+        x: player.x + player.width / 2,
+        y: player.y + player.height / 2 + 5,
+        radius: 22   // Ajusta si quieres más difícil o fácil
+    };
+}
+
 // ================= MORIR =================
 function killPlayer() {
     if (isDead || invulnerable) return;
@@ -123,15 +137,11 @@ canvas.addEventListener("click", () => {
 });
 
 function update() {
-
-    // Detener shake cuando termina el juego
-    if (gameState === "victory" || gameState === "dead") {
-        screenShake = 0;
-    }
+    let dt = slowFactor;
 
     if (gameState !== "playing") return;
 
-    // Respawn
+    // ================= RESPAWN =================
     if (isDead) {
         respawnDelay--;
         if (respawnDelay <= 0) {
@@ -151,7 +161,7 @@ function update() {
             invulnerable = false;
     }
 
-    // Movimiento
+    // ================= MOVIMIENTO =================
     if (keys["a"] && player.x > 0) player.x -= player.speed;
     if (keys["d"] && player.x + player.width < canvas.width)
         player.x += player.speed;
@@ -181,7 +191,7 @@ function update() {
         player.onGround = true;
     }
 
-    // ===== BALAS JUGADOR =====
+    // ================= BALAS JUGADOR =================
     for (let i = bullets.length - 1; i >= 0; i--) {
 
         let b = bullets[i];
@@ -192,107 +202,108 @@ function update() {
             continue;
         }
 
-        if (collision(b, boss)) {
+        if (bossState === "alive" && collision(b, boss)) {
 
             boss.health -= b.damage;
-            screenShake = 6;
             bullets.splice(i, 1);
+            screenShake = 6;
 
-            if (boss.health <= boss.maxHealth / 2)
-                boss.phase = 2;
-
-            // ===== MUERTE DEL JEFE =====
-            if (boss.health <= 0) {
-                boss.health = 0;
-                gameState = "victory";
+            if (boss.health <= 0 && bossState === "alive") {
+                bossState = "falling";
+                bossFallSpeed = 0;
             }
+
+            continue;
         }
     }
 
-    // Colisión directa con jefe
-    if (!invulnerable && collision(player, boss)) {
+    // ================= COLISIÓN DIRECTA CON JEFE =================
+    if (bossState === "alive" && !invulnerable && collision(player, boss)) {
         killPlayer();
     }
 
-    let now = Date.now();
-    let attackInterval = boss.phase === 1 ? 3000 : 2000;
+    // ================= ATAQUES SOLO SI ESTÁ VIVO =================
+    if (bossState === "alive") {
 
-    // ===== ATAQUE NORMAL =====
-    if (now - boss.lastAttackTime > attackInterval) {
+        let now = Date.now();
+        let attackInterval = boss.phase === 1 ? 3000 : 2000;
 
-        for (let i = 0; i < 2; i++) {
+        if (now - boss.lastAttackTime > attackInterval) {
+
+            // BALAS NORMALES
+            for (let i = 0; i < 2; i++) {
+                enemyBullets.push({
+                    x: boss.x,
+                    y: boss.y + 80 + i * 80,
+                    width: 10,
+                    height: 10,
+                    vx: -4,
+                    vy: 0,
+                    type: "normal"
+                });
+            }
+
+            // BALA TRACKING
+            let dx = player.x - boss.x;
+            let dy = player.y - boss.y;
+            let length = Math.sqrt(dx * dx + dy * dy);
+
             enemyBullets.push({
                 x: boss.x,
-                y: boss.y + 80 + i * 80,
-                width: 10,
-                height: 10,
-                vx: -4,
-                vy: 0,
-                type: "normal"
+                y: boss.y + boss.height / 2,
+                width: 12,
+                height: 12,
+                vx: (dx / length) * 2,
+                vy: (dy / length) * 2,
+                type: "tracking",
+                life: 200
             });
+
+            boss.lastAttackTime = now;
         }
 
-        let dx = player.x - boss.x;
-        let dy = player.y - boss.y;
-        let length = Math.sqrt(dx * dx + dy * dy);
-
-        enemyBullets.push({
-            x: boss.x,
-            y: boss.y + boss.height / 2,
-            width: 12,
-            height: 12,
-            vx: (dx / length) * 2,
-            vy: (dy / length) * 2,
-            type: "tracking",
-            life: 200
-        });
-
-        boss.lastAttackTime = now;
-    }
-
-    // ===== LLUVIA SOLAR =====
-    if (now - boss.lastRainTime > 8000) {
-
-        for (let i = 0; i < 5; i++) {
-            enemyBullets.push({
-                x: Math.random() * canvas.width,
-                y: -20,
-                width: 8,
-                height: 14,
-                vx: 0,
-                vy: 5,
-                type: "rain"
-            });
+        // ================= LLUVIA SOLAR =================
+        if (now - boss.lastRainTime > 8000) {
+            for (let i = 0; i < 5; i++) {
+                enemyBullets.push({
+                    x: Math.random() * canvas.width,
+                    y: -20,
+                    width: 8,
+                    height: 14,
+                    vx: 0,
+                    vy: 5,
+                    type: "rain"
+                });
+            }
+            boss.lastRainTime = now;
         }
 
-        boss.lastRainTime = now;
-    }
+        // ================= EMBESTIDA =================
+        if (!boss.diving && !boss.charging && Math.random() < 0.002) {
+            boss.charging = true;
+            boss.chargeTimer = 60;
+        }
 
-    // ===== EMBESTIDA SIMPLE =====
-    if (!boss.diving && !boss.charging && Math.random() < 0.002) {
-        boss.charging = true;
-        boss.chargeTimer = 60;
-    }
+        if (boss.charging) {
+            boss.chargeTimer--;
+            if (boss.chargeTimer <= 0) {
+                boss.charging = false;
+                boss.diving = true;
+            }
+        }
 
-    if (boss.charging) {
-        boss.chargeTimer--;
-        if (boss.chargeTimer <= 0) {
-            boss.charging = false;
-            boss.diving = true;
+        if (boss.diving) {
+            boss.y += 10;
+            if (boss.y + boss.height >= canvas.height - 20) {
+                boss.diving = false;
+            }
+        } else if (!boss.charging) {
+            if (boss.y > boss.baseY)
+                boss.y -= 5;
         }
     }
 
-    if (boss.diving) {
-        boss.y += 10;
-        if (boss.y + boss.height >= canvas.height - 20) {
-            boss.diving = false;
-        }
-    } else if (!boss.charging) {
-        if (boss.y > boss.baseY)
-            boss.y -= 5;
-    }
-
-    // ===== BALAS ENEMIGAS =====
+    // ================= BALAS ENEMIGAS =================
     for (let i = enemyBullets.length - 1; i >= 0; i--) {
 
         let b = enemyBullets[i];
@@ -300,6 +311,7 @@ function update() {
         b.x += b.vx;
         b.y += b.vy;
 
+        // TRACKING INTELIGENTE
         if (b.type === "tracking") {
 
             let dx = player.x - b.x;
@@ -318,26 +330,206 @@ function update() {
             }
 
             b.life--;
+
             if (b.life <= 0) {
                 enemyBullets.splice(i, 1);
                 continue;
             }
         }
 
-        if (!invulnerable && collision(player, b))
-            killPlayer();
+        // COLISIÓN CIRCULAR REAL
+        let hitbox = getPlayerHitbox();
 
-        if (
-            b.x < -30 ||
-            b.x > canvas.width + 30 ||
-            b.y > canvas.height + 30
-        ) {
-            enemyBullets.splice(i, 1);
+        let bulletCenterX = b.x + b.width / 2;
+        let bulletCenterY = b.y + b.height / 2;
+
+        let dx = bulletCenterX - hitbox.x;
+        let dy = bulletCenterY - hitbox.y;
+
+        let distance = Math.sqrt(dx * dx + dy * dy);
+
+        let bulletRadius = b.width / 2;
+
+        if (!invulnerable && distance < bulletRadius + hitbox.radius) {
+            killPlayer();
         }
     }
 
-    scoreElement.textContent = score;
+    // ================= CAÍDA DEL JEFE =================
+    if (bossState === "falling") {
+
+        enemyBullets.length = 0;
+
+        slowMotion = true;
+        slowFactor = 0.4;
+
+        bossFallSpeed += 0.6 * slowFactor;
+        boss.y += bossFallSpeed;
+        bossRotation += 0.08;
+
+        if (boss.y + boss.height >= canvas.height - 20) {
+
+            boss.y = canvas.height - 20 - boss.height;
+            bossState = "defeated";
+            victoryTimer = 120;
+            screenShake = 20;
+
+            slowMotion = false;
+            slowFactor = 1;
+        }
+    }
+
+    // ================= ACTIVAR VICTORIA =================
+    if (bossState === "defeated") {
+
+        victoryTimer--;
+
+        if (victoryTimer <= 0) {
+            gameState = "victory";
+        }
+    }
 }
+
+
+// Colisión directa con jefe
+if (!invulnerable && collision(player, boss)) {
+    killPlayer();
+}
+
+let now = Date.now();
+let attackInterval = boss.phase === 1 ? 3000 : 2000;
+
+// ===== ATAQUE NORMAL =====
+if (now - boss.lastAttackTime > attackInterval) {
+
+    for (let i = 0; i < 2; i++) {
+        enemyBullets.push({
+            x: boss.x,
+            y: boss.y + 80 + i * 80,
+            width: 10,
+            height: 10,
+            vx: -4,
+            vy: 0,
+            type: "normal"
+        });
+    }
+
+    let dx = player.x - boss.x;
+    let dy = player.y - boss.y;
+    let length = Math.sqrt(dx * dx + dy * dy);
+
+    enemyBullets.push({
+        x: boss.x,
+        y: boss.y + boss.height / 2,
+        width: 12,
+        height: 12,
+        vx: (dx / length) * 2,
+        vy: (dy / length) * 2,
+        type: "tracking",
+        life: 200
+    });
+
+    boss.lastAttackTime = now;
+}
+
+// ===== LLUVIA SOLAR =====
+if (now - boss.lastRainTime > 8000) {
+
+    for (let i = 0; i < 5; i++) {
+        enemyBullets.push({
+            x: Math.random() * canvas.width,
+            y: -20,
+            width: 8,
+            height: 14,
+            vx: 0,
+            vy: 5,
+            type: "rain"
+        });
+    }
+
+    boss.lastRainTime = now;
+}
+
+// ===== EMBESTIDA SIMPLE =====
+if (!boss.diving && !boss.charging && Math.random() < 0.002) {
+    boss.charging = true;
+    boss.chargeTimer = 60;
+}
+
+if (boss.charging) {
+    boss.chargeTimer--;
+    if (boss.chargeTimer <= 0) {
+        boss.charging = false;
+        boss.diving = true;
+    }
+}
+
+if (boss.diving) {
+    boss.y += 10;
+    if (boss.y + boss.height >= canvas.height - 20) {
+        boss.diving = false;
+    }
+} else if (!boss.charging) {
+    if (boss.y > boss.baseY)
+        boss.y -= 5;
+}
+
+// ================= BALAS ENEMIGAS =================
+for (let i = enemyBullets.length - 1; i >= 0; i--) {
+
+    let b = enemyBullets[i];
+
+    b.x += b.vx;
+    b.y += b.vy;
+
+    // TRACKING
+    if (b.type === "tracking") {
+
+        let dx = player.x - b.x;
+        let dy = player.y - b.y;
+        let length = Math.sqrt(dx * dx + dy * dy);
+
+        b.vx += (dx / length) * 0.04;
+        b.vy += (dy / length) * 0.04;
+
+        let speedLimit = 2.2;
+        let speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+
+        if (speed > speedLimit) {
+            b.vx = (b.vx / speed) * speedLimit;
+            b.vy = (b.vy / speed) * speedLimit;
+        }
+
+        b.life--;
+
+        if (b.life <= 0) {
+            enemyBullets.splice(i, 1);
+            continue;
+        }
+    }
+
+    // ===== COLISIÓN CIRCULAR REAL =====
+    let hitbox = getPlayerHitbox();
+
+    let dx = (b.x + b.width / 2) - (hitbox.x + hitbox.width / 2);
+    let dy = (b.y + b.height / 2) - (hitbox.y + hitbox.height / 2);
+    let distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (!invulnerable && distance < b.width / 2 + hitbox.width / 3) {
+        killPlayer();
+    }
+
+    if (
+        b.x < -30 ||
+        b.x > canvas.width + 30 ||
+        b.y > canvas.height + 30
+    ) {
+        enemyBullets.splice(i, 1);
+    }
+}
+
+scoreElement.textContent = score;
+
 
 // ================= DRAW =================
 function draw() {
@@ -408,8 +600,23 @@ function draw() {
         screenShake = 3;
     }
 
-    ctx.drawImage(bossImg, boss.x, boss.y, boss.width, boss.height);
+    // ================= JEFE CON ROTACIÓN =================
+    ctx.save();
 
+    let centerX = boss.x + boss.width / 2;
+    let centerY = boss.y + boss.height / 2;
+
+    ctx.translate(centerX, centerY);
+    ctx.rotate(bossRotation);
+    ctx.drawImage(
+        bossImg,
+        -boss.width / 2,
+        -boss.height / 2,
+        boss.width,
+        boss.height
+    );
+
+    ctx.restore();
     // Barra jefe
     const barWidth = 400;
     const barX = canvas.width / 2 - barWidth / 2;
@@ -434,8 +641,23 @@ function draw() {
     bullets.forEach(b => ctx.fillRect(b.x, b.y, b.width, b.height));
 
     // Balas enemigas
-    ctx.fillStyle = "#ff6600";
-    enemyBullets.forEach(b => ctx.fillRect(b.x, b.y, b.width, b.height));
+    enemyBullets.forEach(b => {
+
+        let centerX = b.x + b.width / 2;
+        let centerY = b.y + b.height / 2;
+        let radius = b.width / 2 + 3;  // +3 hace que se vean más grandes
+        // Cuerpo del mini-sol
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#ff9900";
+        ctx.fill();
+
+        // Centro brillante
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = "#fff176";
+        ctx.fill();
+    });
 
     // Jugador con parpadeo
     if (invulnerable) {
